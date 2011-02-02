@@ -188,23 +188,36 @@ find_deps(Mode, [{App, VsnRegex, Source} | Rest], Acc) ->
     Dep = #dep { app = App,
                  vsn_regex = VsnRegex,
                  source = Source },
-    case is_app_available(App, VsnRegex) of
+    DepsDir = filename:join(get_deps_dir(), App),
+    case find_dep_in_deps_dir(Dep, DepsDir) of
         {true, AppDir} ->
             find_deps(Mode, Rest, acc_deps(Mode, avail, Dep, AppDir, Acc));
-        {false, _} ->
-            AppDir = filename:join(get_deps_dir(), Dep#dep.app),
-            case is_app_available(App, VsnRegex, AppDir) of
-                {true, AppDir} ->
-                    find_deps(Mode, Rest,
-                              acc_deps(Mode, avail, Dep, AppDir, Acc));
-                {false, _} ->
-                    find_deps(Mode, Rest,
-                              acc_deps(Mode, missing, Dep, AppDir, Acc))
+        _ ->
+            case Source of
+                undefined ->
+                    case find_dep_in_lib_dir(Dep) of
+                        {true, AppDir} ->
+                            find_deps(Mode, Rest, acc_deps(Mode, avail, Dep, AppDir, Acc));
+                        _ ->
+                            find_deps(Mode, Rest, acc_deps(Mode, missing, Dep, DepsDir, Acc))
+                    end;
+                _ ->
+                    find_deps(Mode, Rest, acc_deps(Mode, missing, Dep, DepsDir, Acc))
             end
     end;
 find_deps(_Mode, [Other | _Rest], _Acc) ->
     ?ABORT("Invalid dependency specification ~p in ~s\n",
            [Other, rebar_utils:get_cwd()]).
+
+find_dep_in_lib_dir(Dep) ->
+    App = Dep#dep.app,
+    VsnRegex = Dep#dep.vsn_regex,
+    is_app_available(App, VsnRegex).
+
+find_dep_in_deps_dir(Dep, DepsDir) ->
+    App = Dep#dep.app,
+    VsnRegex = Dep#dep.vsn_regex,
+    is_app_available(App, VsnRegex, DepsDir).
 
 acc_deps(find, avail, Dep, AppDir, {Avail, Missing}) ->
     {[Dep#dep { dir = AppDir } | Avail], Missing};
@@ -229,12 +242,15 @@ require_source_engine(Source) ->
 is_app_available(App, VsnRegex) ->
     case code:lib_dir(App) of
         {error, bad_name} ->
+            ?INFO("is_app_available, App ~p not in code:lib_dir~n", [App]),
             {false, bad_name};
         Path ->
+            ?INFO("is_app_available, code:lib_dir path ~p~n", [Path]),
             is_app_available(App, VsnRegex, Path)
     end.
 
 is_app_available(App, VsnRegex, Path) ->
+    ?INFO("is_app_available, looking for App ~p  with Path ~p~n", [App, Path]),
     case rebar_app_utils:is_app_dir(Path) of
         {true, AppFile} ->
             case rebar_app_utils:app_name(AppFile) of
