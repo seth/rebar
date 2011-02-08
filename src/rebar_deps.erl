@@ -152,10 +152,13 @@ set_global_deps_dir(Config, []) ->
 set_global_deps_dir(_Config, _DepsDir) ->
     ok.
 
-get_deps_dir() ->
+get_deps_dir(AppDir) ->
     BaseDir = rebar_config:get_global(base_dir, []),
     DepsDir = rebar_config:get_global(deps_dir, "deps"),
-    filename:join(BaseDir, DepsDir).
+    filename:join([BaseDir, DepsDir, AppDir]).
+
+get_deps_dir() ->
+    get_deps_dir("").
 
 update_deps_code_path([]) ->
     ok;
@@ -185,39 +188,32 @@ find_deps(Mode, [App | Rest], Acc) when is_atom(App) ->
 find_deps(Mode, [{App, VsnRegex} | Rest], Acc) when is_atom(App) ->
     find_deps(Mode, [{App, VsnRegex, undefined} | Rest], Acc);
 find_deps(Mode, [{App, VsnRegex, Source} | Rest], Acc) ->
-    Dep = #dep { app = App,
+    Dep = #dep{ app = App,
                  vsn_regex = VsnRegex,
                  source = Source },
-    DepsDir = filename:join(get_deps_dir(), App),
-    case find_dep_in_deps_dir(Dep, DepsDir) of
-        {true, AppDir} ->
-            find_deps(Mode, Rest, acc_deps(Mode, avail, Dep, AppDir, Acc));
-        _ ->
-            case Source of
-                undefined ->
-                    case find_dep_in_lib_dir(Dep) of
-                        {true, AppDir} ->
-                            find_deps(Mode, Rest, acc_deps(Mode, avail, Dep, AppDir, Acc));
-                        _ ->
-                            find_deps(Mode, Rest, acc_deps(Mode, missing, Dep, DepsDir, Acc))
-                    end;
-                _ ->
-                    find_deps(Mode, Rest, acc_deps(Mode, missing, Dep, DepsDir, Acc))
-            end
-    end;
+    DepsDir = get_deps_dir(App),
+    {Status, FoundDir} = find_dep_in_deps_dir(Dep, DepsDir, Source),
+    find_deps(Mode, Rest, acc_deps(Mode, Status, Dep, FoundDir, Acc));
 find_deps(_Mode, [Other | _Rest], _Acc) ->
     ?ABORT("Invalid dependency specification ~p in ~s\n",
            [Other, rebar_utils:get_cwd()]).
 
-find_dep_in_lib_dir(Dep) ->
+find_dep_in_lib_dir(Dep, DepsDir, undefined) ->
     App = Dep#dep.app,
     VsnRegex = Dep#dep.vsn_regex,
-    is_app_available(App, VsnRegex).
+    case is_app_available(App, VsnRegex) of
+        {true, AppDir} -> {avail, AppDir};
+                     _ -> {missing, DepsDir}
+    end;
+find_dep_in_lib_dir(_Dep, DepsDir, _Source) ->
+    % if _Source is defined, ignore lib dir
+    {missing, DepsDir}.
 
-find_dep_in_deps_dir(Dep, DepsDir) ->
-    App = Dep#dep.app,
-    VsnRegex = Dep#dep.vsn_regex,
-    is_app_available(App, VsnRegex, DepsDir).
+find_dep_in_deps_dir(Dep, DepsDir, Source) ->
+    case find_dep_in_lib_dir(Dep, DepsDir, undefined) of
+        {missing, DepsDir} -> find_dep_in_lib_dir(Dep, DepsDir, Source);
+                {avail, V} -> {avail, V}
+    end.
 
 acc_deps(find, avail, Dep, AppDir, {Avail, Missing}) ->
     {[Dep#dep { dir = AppDir } | Avail], Missing};
