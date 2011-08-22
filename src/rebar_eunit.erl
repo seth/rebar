@@ -178,9 +178,9 @@ perform_eunit(Config, Modules) ->
     EunitResult.
 
 perform_eunit(EunitOpts, Modules, undefined) ->
-    (catch eunit:test(Modules, EunitOpts));
+    (catch rebar_eunit_spec:test(Modules, EunitOpts));
 perform_eunit(EunitOpts, _Modules, Suites) ->
-    (catch eunit:test([list_to_atom(Suite) ||
+    (catch rebar_eunit_spec:test([list_to_atom(Suite) ||
                           Suite <- string:tokens(Suites, ",")], EunitOpts)).
 
 get_eunit_opts(Config) ->
